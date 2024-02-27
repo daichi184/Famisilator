@@ -60,6 +60,113 @@ bool bBegin_ = true;
 
 char debugBuf_[50];
 
+uint16_t myShiftIn(int dataPin, int clockPin, int loadPin);
+void init74HC165();
+void init74HC595();
+void onTouched();
+bool inputSW(uint16_t _inputCh);
+void resetOctave();
+void upOcatave();
+void downOctave();
+void onPressSW(const bool& _cur, bool& _old, int _ch, void (*pFunc)(void));
+void onReleaseSW(const bool& _cur, bool& _old, int _ch, void (*pFunc)(void));
+void colorWipe(uint32_t c, uint8_t wait);
+void blinkNeoPixel(int _pos);
+void allOffNeoPixel();
+
+void setup() {
+    Serial.begin(115200);
+    Serial.println("\n--------------MY TOUCH BOARD--------------");
+
+    init74HC165();
+    init74HC595();
+    strip.begin();
+    strip.show(); // Initialize all pixels to 'off'
+    colorWipe(strip.Color(0, 127, 0), 30);
+    colorWipe(strip.Color(0, 0, 0), 30);
+
+    ymz294_.setup();
+
+    initPatterns();
+
+    memset(bTouchedKeys_, 0, PAD_LEN);
+    memset(bTouchedPads_, 0, PAD_LEN);
+    memset(gCnt_, 0, PAD_LEN);
+    memset(bOldSwState_, 0, 3);
+    memset(bCurSwState_, 0, 3);
+    
+    
+    Serial.println("--------------START--------------");
+}
+
+void loop() {
+    digitalWrite(OUT_PIN_LATCH, LOW );
+        shiftOut(OUT_PIN_SER, OUT_PIN_CLK, LSBFIRST, patterns[1]);
+    digitalWrite(OUT_PIN_LATCH, HIGH );
+
+    onTouched();
+
+    digitalWrite(OUT_PIN_LATCH, LOW );
+        shiftOut(OUT_PIN_SER, OUT_PIN_CLK, LSBFIRST, patterns[0]);
+    digitalWrite(OUT_PIN_LATCH, HIGH );
+
+    int releasePad;
+    for(int pad=0; pad<PAD_LEN; pad++){
+        if(bTouchedKeys_[pad] == true){
+            keyboardNo_ = 12 + (octave_-1)*TONE_SCALE;
+
+            ymz294_.noteOn(Channel::CH_A, noteNumber[pad+keyboardNo_], 15);
+
+            releasedCnt_[pad] = 0;
+
+            for(uint16_t i=0; i<strip.numPixels(); i++) {
+                strip.setPixelColor(i, strip.Color(0, 0, 0));
+            }
+            
+            blinkNeoPixel(pad);
+        }
+        else{
+            //ログを入れるかどうかでwaitの時間が変わるので注意
+            int wait = 60;
+            releasedCnt_[pad]++;
+            
+            if(releasedCnt_[pad] > wait){                
+                releasePad++;
+                releasedCnt_[pad] = wait;
+            }
+        }
+    }
+
+    if(releasePad >= PAD_LEN){
+        ymz294_.noteOff(Channel::CH_A);
+        allOffNeoPixel();
+    }
+
+    int sw1 = 1;
+    bCurSwState_[0] = inputSW(sw1+PAD_LEN);
+    onPressSW(bCurSwState_[0], bOldSwState_[0], sw1, downOctave);
+
+    int sw2 = 2;
+    if(inputSW(sw2+PAD_LEN) == true){
+        if(bBegin_) {
+            Serial.println("SW_2 OnPress");
+            octave_++;
+            bBegin_ = false;
+        }
+    }
+    else{
+        if(!bBegin_){
+            octave_--;
+            bBegin_ = true;
+        }
+    }
+    
+    int sw3 = 3;
+    bCurSwState_[2] = inputSW(sw3+PAD_LEN);
+    onPressSW(bCurSwState_[2], bOldSwState_[2], sw3, upOcatave);
+}
+
+
 uint16_t myShiftIn(int dataPin, int clockPin, int loadPin){
     //int 2byteなので、16bitにすると上位1bitが１になるとマイナス値になる
     //マイナス値になると4byte、32bit扱いになり上位ビットに不要なデータが入る
@@ -157,6 +264,7 @@ void upOcatave(){
     Serial.println(debugBuf_);
 }
 
+
 void downOctave(){
     if(octave_ > MIN_OCTAVE){
         octave_--;
@@ -164,7 +272,6 @@ void downOctave(){
     sprintf(debugBuf_, "OCTAVE DOWN %d, KeyBoard No.%d ~", octave_, 3+(octave_-1)*TONE_SCALE);
     Serial.println(debugBuf_);
 }
-
 
 void onPressSW(const bool& _cur, bool& _old, int _ch, void (*pFunc)(void)){
     if(_cur != _old){
@@ -211,97 +318,3 @@ void allOffNeoPixel(){
     }
     strip.show();
 }
-
-void setup() {
-    Serial.begin(115200);
-    Serial.println("\n--------------MY TOUCH BOARD--------------");
-
-    init74HC165();
-    init74HC595();
-    strip.begin();
-    strip.show(); // Initialize all pixels to 'off'
-    colorWipe(strip.Color(0, 127, 0), 30);
-    colorWipe(strip.Color(0, 0, 0), 30);
-
-    ymz294_.setup();
-
-    initPatterns();
-
-    memset(bTouchedKeys_, 0, PAD_LEN);
-    memset(bTouchedPads_, 0, PAD_LEN);
-    memset(gCnt_, 0, PAD_LEN);
-    memset(bOldSwState_, 0, 3);
-    memset(bCurSwState_, 0, 3);
-    
-    
-    Serial.println("--------------START--------------");
-}
-
-void loop() {
-    digitalWrite(OUT_PIN_LATCH, LOW );
-        shiftOut(OUT_PIN_SER, OUT_PIN_CLK, LSBFIRST, patterns[1]);
-    digitalWrite(OUT_PIN_LATCH, HIGH );
-
-    onTouched();
-
-    digitalWrite(OUT_PIN_LATCH, LOW );
-        shiftOut(OUT_PIN_SER, OUT_PIN_CLK, LSBFIRST, patterns[0]);
-    digitalWrite(OUT_PIN_LATCH, HIGH );
-
-    int releasePad;
-    for(int pad=0; pad<PAD_LEN; pad++){
-        if(bTouchedKeys_[pad] == true){
-            keyboardNo_ = 12 + (octave_-1)*TONE_SCALE;
-
-            ymz294_.noteOn(Channel::CH_A, noteNumber[pad+keyboardNo_], 15);
-
-            releasedCnt_[pad] = 0;
-
-            for(uint16_t i=0; i<strip.numPixels(); i++) {
-                strip.setPixelColor(i, strip.Color(0, 0, 0));
-            }
-            
-            blinkNeoPixel(pad);
-        }
-        else{
-            //ログを入れるかどうかでwaitの時間が変わるので注意
-            int wait = 60;
-            releasedCnt_[pad]++;
-            
-            if(releasedCnt_[pad] > wait){                
-                releasePad++;
-                releasedCnt_[pad] = wait;
-            }
-        }
-    }
-
-    if(releasePad >= PAD_LEN){
-        ymz294_.noteOff(Channel::CH_A);
-        allOffNeoPixel();
-    }
-
-    int sw1 = 1;
-    bCurSwState_[0] = inputSW(sw1+PAD_LEN);
-    onPressSW(bCurSwState_[0], bOldSwState_[0], sw1, downOctave);
-
-    int sw2 = 2;
-    if(inputSW(sw2+PAD_LEN) == true){
-        if(bBegin_) {
-            Serial.println("SW_2 OnPress");
-            octave_++;
-            bBegin_ = false;
-        }
-    }
-    else{
-        if(!bBegin_){
-            octave_--;
-            bBegin_ = true;
-        }
-    }
-    
-    int sw3 = 3;
-    bCurSwState_[2] = inputSW(sw3+PAD_LEN);
-    onPressSW(bCurSwState_[2], bOldSwState_[2], sw3, upOcatave);
-}
-
-
